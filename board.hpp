@@ -90,6 +90,8 @@ using EncoderTimer = Timer1;
 
 using DisplayI2c = I2cMaster3;
 
+using Button = GpioInputA10;
+
 using LoggerDevice = modm::IODeviceWrapper< stlink::Uart, modm::IOBuffer::BlockIfFull >;
 
 inline void
@@ -108,10 +110,10 @@ initialize()
 
 	EncoderTimer::connect<GpioA8::Ch1, GpioA9::Ch2>();
 
-	// Button::setInput();
-	// Button::setInputTrigger(Gpio::InputTrigger::RisingEdge);
-	// Button::enableExternalInterrupt();
-	//	Button::enableExternalInterruptVector(12);
+	Button::setInput();
+	Button::setInputTrigger(Gpio::InputTrigger::RisingEdge);
+	Button::enableExternalInterrupt();
+	Button::enableExternalInterruptVector(12);
 }
 
 }

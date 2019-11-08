@@ -15,6 +15,8 @@
 #include <modm/debug/logger.hpp>
 #include <modm/processing/protothread.hpp>
 
+#include <cmath>
+
 #include "bargraph.hpp"
 
 using namespace modm::platform;
@@ -29,7 +31,60 @@ modm::log::Logger modm::log::info(loggerDevice);
 modm::log::Logger modm::log::warning(loggerDevice);
 modm::log::Logger modm::log::error(loggerDevice);
 
-BarGraph<Board::DisplayI2c> LEDS;
+static bool buttonFlag = false;
+
+MODM_ISR(EXTI15_10) {
+	Board::Button::acknowledgeExternalInterruptFlag();
+	buttonFlag = true;
+}
+
+template <typename I2cMaster>
+class TunerDisplay : public BarGraph<I2cMaster>
+{
+public:
+	TunerDisplay(float low_limit, float high_limit) : BarGraph<I2cMaster>(), limL(low_limit), limH(high_limit) {}
+
+	void setValue(float value) {
+		if(value > limH) {
+			value = limH;
+		} else if(value < limL) {
+			value = limL;
+		}
+		
+		float led_pos = 23.0 * (value - limL) / (limH - limL);
+		float remainder = fmod(led_pos, 1);
+		float delta = fabs(led_pos - 11.5);
+		BarGraphColor color;
+		if(delta < 1) {
+			color = BarGraphColor::GREEN;
+		} else if(delta < 6) {
+			color = BarGraphColor::YELLOW;
+		} else {
+			color = BarGraphColor::RED;
+		}
+
+		this->clear();
+		if(remainder < 0.33) {
+			this->setBar((uint8_t)led_pos, color);
+		} else if(remainder < 0.66) {
+			this->setBar((uint8_t)led_pos, color);
+			this->setBar((uint8_t)led_pos + 1, color);
+		} else {
+			this->setBar((uint8_t)led_pos + 1, color);
+		}
+	}
+private:
+	float limL;
+	float limH;
+};
+
+
+#define FREQ_START 1000
+#define FREQ_MIN 800
+#define FREQ_MAX 1200
+
+
+TunerDisplay<Board::DisplayI2c> Display(FREQ_MIN, FREQ_MAX);
 
 class MainThread : public modm::pt::Protothread 
 {
@@ -38,22 +93,38 @@ public:
     run()
     {	
 		PT_BEGIN();
-		PT_CALL(LEDS.initialize());
+		PT_CALL(Display.initialize());
+
 		while(true) {
+			freq = Board::EncoderTimer::getValue();
+			if(buttonFlag) {
+				buttonFlag = false;
+				freq = FREQ_START;
+				Board::EncoderTimer::setValue(freq);
+			}
+			else if(freq < FREQ_MIN) {
+				freq = FREQ_MIN;
+				Board::EncoderTimer::setValue(freq);
+			} else if(freq > FREQ_MAX) {
+				freq = FREQ_MAX;
+				Board::EncoderTimer::setValue(freq);
+			}
+			Board::PwmTimer::setOverflow(freq);
+			//Board::PwmTimer::applyAndReset();
+			Display.setValue(freq);
+			// Display.clear();
+			// Display.setBar(position, BarGraphColor::YELLOW);
+			//position = (position+1)%24;
+			PT_CALL(Display.write());
+
 			modm::delayMilliseconds(100);
-			modm::log::warning << "Loop\n";
-			Board::PwmTimer::setOverflow(Board::EncoderTimer::getValue());
-			Board::PwmTimer::applyAndReset();
-			LEDS.clear();
-			LEDS.setBar(position, BarGraphColor::YELLOW);
-			position = (position+1)%24;
-			PT_CALL(LEDS.write());
 		}
 		PT_END();
     }
 
 private: 
 	uint8_t position;
+	uint16_t freq;
 };
 
 
@@ -74,7 +145,7 @@ main()
 	// }
 
 	Board::EncoderTimer::enable();
-	Board::EncoderTimer::setValue(1000);
+	Board::EncoderTimer::setValue(FREQ_START);
 	Board::EncoderTimer::setMode(Board::EncoderTimer::Mode::UpCounter, Board::EncoderTimer::SlaveMode::Encoder1, AdvancedControlTimer::SlaveModeTrigger::Internal0);
 	Board::EncoderTimer::configureInputChannel(1, Board::EncoderTimer::InputCaptureMapping::InputOwn, Board::EncoderTimer::InputCapturePrescaler::Div1, Board::EncoderTimer::InputCapturePolarity::Rising, 0);
 	Board::EncoderTimer::configureInputChannel(2, Board::EncoderTimer::InputCaptureMapping::InputOwn, Board::EncoderTimer::InputCapturePrescaler::Div1, Board::EncoderTimer::InputCapturePolarity::Rising, 0);
@@ -83,7 +154,7 @@ main()
 	Board::PwmTimer::enable();
 	Board::PwmTimer::setMode(Board::PwmTimer::Mode::UpCounter);
 	Board::PwmTimer::setPrescaler(1);
-	Board::PwmTimer::setOverflow(2000);
+	Board::PwmTimer::setOverflow(FREQ_START);
 	Board::PwmTimer::configureOutputChannel(
 		 1,
 		 Board::PwmTimer::OutputCompareMode::Toggle,
