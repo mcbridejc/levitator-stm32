@@ -17,6 +17,7 @@
 
 #include <cmath>
 
+#include "PhaseMeasurement.hpp"
 #include "bargraph.hpp"
 
 using namespace modm::platform;
@@ -43,6 +44,10 @@ class TunerDisplay : public BarGraph<I2cMaster>
 {
 public:
 	TunerDisplay(float low_limit, float high_limit) : BarGraph<I2cMaster>(), limL(low_limit), limH(high_limit) {}
+
+	void setBlank() {
+		this->clear();
+	}
 
 	void setValue(float value) {
 		if(value > limH) {
@@ -83,8 +88,11 @@ private:
 #define FREQ_MIN 800
 #define FREQ_MAX 1200
 
+#define PHASE_MIN 0
+#define PHASE_MAX 2000
+TunerDisplay<Board::DisplayI2c> Display(PHASE_MIN, PHASE_MAX);
 
-TunerDisplay<Board::DisplayI2c> Display(FREQ_MIN, FREQ_MAX);
+using Phase = PhaseMeasurement;
 
 class MainThread : public modm::pt::Protothread 
 {
@@ -94,6 +102,8 @@ public:
     {	
 		PT_BEGIN();
 		PT_CALL(Display.initialize());
+
+		Phase::initialize();
 
 		while(true) {
 			freq = Board::EncoderTimer::getValue();
@@ -109,14 +119,20 @@ public:
 				freq = FREQ_MAX;
 				Board::EncoderTimer::setValue(freq);
 			}
-			Board::PwmTimer::setOverflow(freq);
+			//Board::PwmTimer::setOverflow(freq);
 			//Board::PwmTimer::applyAndReset();
-			Display.setValue(freq);
+			if(Phase::isLocked()) {
+				Display.setValue(Phase::getPhase());
+			} else {
+				Display.setBlank();
+			}
 			// Display.clear();
 			// Display.setBar(position, BarGraphColor::YELLOW);
 			//position = (position+1)%24;
 			PT_CALL(Display.write());
 
+			uint16_t adc = ADC1->DR;
+			modm::log::info << Phase::watchDogCounter << ": " << Phase::getPhase() << ", " << adc << "\n";
 			modm::delayMilliseconds(100);
 		}
 		PT_END();
@@ -154,11 +170,11 @@ main()
 	Board::PwmTimer::enable();
 	Board::PwmTimer::setMode(Board::PwmTimer::Mode::UpCounter);
 	Board::PwmTimer::setPrescaler(1);
-	Board::PwmTimer::setOverflow(FREQ_START);
+	Board::PwmTimer::setOverflow(2000);
 	Board::PwmTimer::configureOutputChannel(
 		 1,
-		 Board::PwmTimer::OutputCompareMode::Toggle,
-		 1
+		 Board::PwmTimer::OutputCompareMode::Pwm,
+		 1000
 	);
 	Board::PwmTimer::start();
 

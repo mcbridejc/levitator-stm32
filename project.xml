@@ -14,12 +14,15 @@
     <module>modm:debug</module>
     <module>modm:processing:protothread</module>
     <module>modm:build:scons</module>
+    <module>modm:platform:adc:1</module>
     <module>modm:platform:clock</module>
     <module>modm:platform:core</module>
     <module>modm:platform:gpio</module>
     <module>modm:architecture:delay</module>
     <module>modm:platform:uart:2</module>
+    <module>modm:platform:systick</module>
     <module>modm:platform:timer:1</module>
+    <module>modm:platform:timer:15</module>
     <module>modm:platform:timer:16</module>
     <module>modm:platform:i2c:3</module>
     <module>modm:architecture:i2c.device</module>
